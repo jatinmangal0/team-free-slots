@@ -10,17 +10,17 @@
 /* Layout: a toolbar (week + mode + who) over one big time grid; best-slot list beside it on wide screens, below on phones */
 :root{
   --bg:#f3f5f4; --surface:#ffffff; --fg:#17201d; --muted:#5d6b66; --line:#dbe2df;
-  --free:#1f7a5a; --free-soft:#d5efe3; --busy:#c9731f; --busy-soft:#f6e3cd; --accent:#245c8f; --accent-soft:#dde8f3;
+  --free:#1f7a5a; --free-soft:#d5efe3; --busy:#c9731f; --busy-soft:#f6e3cd; --accent:#245c8f; --accent-soft:#dde8f3; --on-busy:#ffffff;
   --f-display:"Familjen Grotesk",ui-sans-serif,system-ui,sans-serif;
   --f-body:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#111715; --surface:#18201d; --fg:#e6ece9; --muted:#97a6a0; --line:#2b3632;
-  --free:#4cc394; --free-soft:#173a2c; --busy:#e8984d; --busy-soft:#43301b; --accent:#7fb2e3; --accent-soft:#1c2c3b; color-scheme:dark}}
+  --free:#4cc394; --free-soft:#173a2c; --busy:#e8984d; --busy-soft:#43301b; --accent:#7fb2e3; --accent-soft:#1c2c3b; --on-busy:#22160a; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#111715; --surface:#18201d; --fg:#e6ece9; --muted:#97a6a0; --line:#2b3632;
-  --free:#4cc394; --free-soft:#173a2c; --busy:#e8984d; --busy-soft:#43301b; --accent:#7fb2e3; --accent-soft:#1c2c3b; color-scheme:dark}
+  --free:#4cc394; --free-soft:#173a2c; --busy:#e8984d; --busy-soft:#43301b; --accent:#7fb2e3; --accent-soft:#1c2c3b; --on-busy:#22160a; color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.45;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
@@ -47,14 +47,20 @@ button{cursor:pointer}
 @media (max-width:880px){.main{grid-template-columns:minmax(0,1fr)}}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px}
 .gridbox{overflow-x:auto;padding:10px 10px 12px}
-table.g{border-collapse:separate;border-spacing:2px;width:100%;min-width:560px;user-select:none;-webkit-user-select:none;touch-action:none}
+table.g{table-layout:fixed;border-collapse:separate;border-spacing:2px;width:100%;min-width:560px;user-select:none;-webkit-user-select:none;touch-action:none}
 .g th{font-weight:500;font-size:12px;color:var(--muted);padding:4px 2px}
 .g th .d{display:block;font-family:var(--f-display);font-size:15px;color:var(--fg);font-variant-numeric:tabular-nums}
 .g th.today .d{color:var(--accent)}
 .g td.t{font-family:var(--f-mono);font-size:11px;color:var(--muted);text-align:right;padding-right:6px;white-space:nowrap;vertical-align:top;line-height:1;width:44px}
 .g td.c{height:20px;border-radius:4px;background:var(--bg);cursor:pointer;position:relative;font-family:var(--f-mono);font-size:10px;text-align:center;color:var(--muted);padding:0}
 .g tr.hr td.c{box-shadow:inset 0 1px 0 var(--line)}
-.mode-mine td.c.on{background:var(--busy);box-shadow:none}
+.mode-mine td.c.on{background:var(--busy);box-shadow:none;color:var(--on-busy)}
+.mode-mine td.c{font-family:var(--f-body);font-size:10.5px;font-weight:500;text-align:left;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.g thead th:first-child{width:44px}
+.reason{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.reason input{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;width:220px;max-width:100%;min-width:0}
+.qk{border:1px dashed var(--line);background:transparent;border-radius:999px;padding:4px 10px;font-size:12px;color:var(--muted)}
+.qk[aria-pressed="true"]{border-style:solid;border-color:var(--busy);color:var(--fg);background:var(--busy-soft)}
 .mode-team td.c{cursor:default}
 .mode-team td.c.all{background:var(--free);color:transparent}
 .mode-team td.c.pick{outline:2px solid var(--accent);outline-offset:-1px}
@@ -104,6 +110,11 @@ aside h2{font-family:var(--f-display);font-size:17px;margin:0;font-weight:700}
     <div class="people" id="people"></div>
     <button class="btn" id="editNames" style="padding:4px 10px;font-size:12px">Edit names</button>
   </div>
+  <div class="reason" id="reasonRow">
+    <label class="label" for="reason">Busy with</label>
+    <input id="reason" maxlength="40" placeholder="e.g. Class, Club meeting (optional)" autocomplete="off">
+    <div class="group" id="quick"></div>
+  </div>
   <div class="panel" id="namesPanel" hidden>
     <div class="names" id="namesForm"></div>
     <div class="group" style="padding:0 12px 12px">
@@ -138,6 +149,8 @@ let me=null; try{const v=localStorage.getItem('tfs-me'); if(v!==null) me=+v;}cat
 let view='mine';
 let weekStart=mondayOf(new Date());
 let busyAll={}; // weekKey -> {memberIdx: Set(slotKeys)}
+let notesAll={}; // weekKey -> {memberIdx: {slotKey: reason}}
+const QUICK=['Class','Meeting','Club','Personal','Travel'];
 let unsubWeek=null;
 let picked=null;
 let dirty=false, saving=false;
@@ -150,6 +163,9 @@ function timeLabel(r){const m=START_H*60+r*STEP;let h=Math.floor(m/60),mm=m%60;c
 function key(d,r){return d+'-'+r}
 function weekBusy(){return busyAll[wk()]||(busyAll[wk()]={})}
 function mine(){const w=weekBusy();return w[me]||(w[me]=new Set())}
+function weekNotes(){return notesAll[wk()]||(notesAll[wk()]={})}
+function notesOf(i){const n=weekNotes();return n[i]||(n[i]={})}
+function curReason(){return $('reason').value.trim().slice(0,40)}
 const $=id=>document.getElementById(id);
 
 function setStatus(t){$('status').textContent=t}
@@ -178,12 +194,21 @@ function paint(){
   const w=weekBusy();
   if(view==='mine'){
     const s=me!==null?(w[me]||new Set()):new Set();
-    cells.forEach(c=>{c.classList.toggle('on',s.has(c.dataset.k));c.className=c.className.replace(/\blv\d\b|\ball\b|\bpick\b/g,'').trim();c.textContent='';c.style.background='';c.style.color=''});
+    const nt=me!==null?notesOf(me):{};
+    cells.forEach(c=>{
+      const k=c.dataset.k,on=s.has(k);
+      c.classList.toggle('on',on);c.classList.remove('all','pick');c.style.background='';c.style.color='';
+      const [d,r]=k.split('-').map(Number),note=on?(nt[k]||''):'';
+      const above=key(d,r-1),startOfRun=!s.has(above)||(nt[above]||'')!==note;
+      c.textContent=on&&note&&startOfRun?note:'';
+      c.title=on?(note||'Busy'):'';
+    });
   }else{
     cells.forEach(c=>{
       const k=c.dataset.k;let n=0;for(let i=0;i<6;i++) if(w[i]&&w[i].has(k)) n++;
       c.classList.remove('on');c.classList.toggle('all',n===0);c.classList.toggle('pick',picked===k);
       c.textContent=n?n:'';
+      c.title=n?[0,1,2,3,4,5].filter(i=>w[i]&&w[i].has(k)).map(i=>names[i]+(notesOf(i)[k]?' ('+notesOf(i)[k]+')':'')).join(', ')+' busy':'Everyone free';
       c.style.background=n?`color-mix(in srgb, var(--busy) ${Math.round(18+n*13)}%, var(--bg))`:'';
       c.style.color=n>=4?'var(--surface)':'';
     });
@@ -211,7 +236,7 @@ function renderSide(){
     $('sideTitle').textContent=me===null?'Pick your name':'Your busy time';
     if(me===null){body.innerHTML='<p class="hint">Tap your name above, then tap or drag across the grid to mark the times you already have a class, meeting or anything else.</p>';return}
     const n=(weekBusy()[me]||new Set()).size;
-    body.innerHTML=`<p class="hint">Tap or drag over cells to mark when <b>${esc(names[me])}</b> is busy. Drag again over orange cells to clear them. Changes save on their own.</p><p class="hint" style="font-family:var(--f-mono)">${(n*STEP/60).toFixed(1)} h marked busy this week</p>`;
+    body.innerHTML=`<p class="hint">Type or pick what you're busy with, then tap or drag over cells to mark when <b>${esc(names[me])}</b> is busy. The label is saved with those cells. Drag again over orange cells to clear them. Changes save on their own.</p><p class="hint" style="font-family:var(--f-mono)">${(n*STEP/60).toFixed(1)} h marked busy this week</p>`;
   }else{
     $('sideTitle').textContent='Everyone free';
     const marked=[0,1,2,3,4,5].filter(i=>(weekBusy()[i]||new Set()).size>0).length;
@@ -220,8 +245,8 @@ function renderSide(){
     h+=r.length?'<ul class="slots">'+r.map(x=>`<li><b>${DAYS[x.d]} ${addDays(weekStart,x.d).getDate()}</b><span>${timeLabel(x.s)}–${timeLabel(x.e)}</span></li>`).join('')+'</ul>':'<p class="empty">No hour-long window where all six are free this week.</p>';
     if(picked){
       const [d,rr]=picked.split('-').map(Number);const w=weekBusy();
-      const busy=[],free=[];for(let i=0;i<6;i++)(w[i]&&w[i].has(picked)?busy:free).push(names[i]);
-      h+=`<div class="detail"><b>${DAYS[d]} ${addDays(weekStart,d).getDate()}, ${timeLabel(rr)}–${timeLabel(rr+1)}</b><div class="who">${free.map(n=>`<span class="tag ok">${esc(n)}</span>`).join('')}${busy.map(n=>`<span class="tag">${esc(n)} · busy</span>`).join('')}</div></div>`;
+      const busy=[],free=[];for(let i=0;i<6;i++){if(w[i]&&w[i].has(picked)) busy.push(names[i]+' · '+(notesOf(i)[picked]||'busy')); else free.push(names[i])}
+      h+=`<div class="detail"><b>${DAYS[d]} ${addDays(weekStart,d).getDate()}, ${timeLabel(rr)}–${timeLabel(rr+1)}</b><div class="who">${free.map(n=>`<span class="tag ok">${esc(n)}</span>`).join('')}${busy.map(n=>`<span class="tag">${esc(n)}</span>`).join('')}</div></div>`;
     }else h+='<p class="hint">Tap any cell to see who is busy then.</p>';
     body.innerHTML=h;
   }
@@ -245,14 +270,16 @@ $('grid').addEventListener('pointerdown',e=>{
   if(me===null){setStatus('Pick your name first.');return}
   if(!canWrite){setStatus('You can view but not edit this calendar.');return}
   e.preventDefault();
-  const s=mine();drag={add:!s.has(c.dataset.k),seen:new Set()};
+  const s=mine();drag={add:!s.has(c.dataset.k),reason:curReason(),seen:new Set()};
   apply(c);
 });
 window.addEventListener('pointermove',e=>{if(!drag) return;const c=cellAt(e.clientX,e.clientY);if(c) apply(c)});
 window.addEventListener('pointerup',()=>{if(drag){drag=null;scheduleSave()}});
 function apply(c){
   const k=c.dataset.k;if(drag.seen.has(k)) return;drag.seen.add(k);
-  const s=mine();drag.add?s.add(k):s.delete(k);c.classList.toggle('on',drag.add);dirty=true;
+  const s=mine(),nt=notesOf(me);
+  if(drag.add){s.add(k);if(drag.reason) nt[k]=drag.reason; else delete nt[k]}else{s.delete(k);delete nt[k]}
+  dirty=true;paint();
 }
 
 /* ---------- storage ---------- */
@@ -263,8 +290,9 @@ async function save(){
   if(saving){scheduleSave();return}
   saving=true;dirty=false;setStatus('Saving…');
   const week=wk(), who=me, slots=[...mine()].sort();
+  const nt=notesOf(who),notes={};slots.forEach(k=>{if(nt[k]) notes[k]=nt[k]});
   try{
-    const r=await fetch(API+'/busy',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({week,member:who,slots})});
+    const r=await fetch(API+'/busy',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({week,member:who,slots,notes})});
     if(!r.ok) throw new Error(r.status);
     setStatus('Saved');
   }catch(err){dirty=true;setStatus('Could not save. Check your connection; it will retry.');setTimeout(scheduleSave,4000)}
@@ -285,6 +313,7 @@ async function load(){
       for(let i=0;i<6;i++){
         if(i===me&&(dirty||saving)) continue; // keep my unsaved edits
         w[i]=new Set(Array.isArray(d.busy[i])?d.busy[i]:[]);
+        weekNotes()[i]=(d.notes&&d.notes[i]&&typeof d.notes[i]==='object')?{...d.notes[i]}:{};
       }
       paint();renderPeople();
     }
@@ -318,9 +347,15 @@ function goWeek(d){weekStart=d;picked=null;buildGrid();renderPeople();listenWeek
 $('prev').onclick=()=>goWeek(addDays(weekStart,-7));
 $('next').onclick=()=>goWeek(addDays(weekStart,7));
 $('thisWeek').onclick=()=>goWeek(mondayOf(new Date()));
-function setView(v){view=v;$('vMine').setAttribute('aria-pressed',v==='mine');$('vTeam').setAttribute('aria-pressed',v==='team');renderLegend();buildGrid();renderPeople()}
+function setView(v){view=v;$('reasonRow').hidden=v!=='mine';$('vMine').setAttribute('aria-pressed',v==='mine');$('vTeam').setAttribute('aria-pressed',v==='team');renderLegend();buildGrid();renderPeople()}
 $('vMine').onclick=()=>setView('mine');
 $('vTeam').onclick=()=>setView('team');
+
+/* ---------- reason picker ---------- */
+function renderQuick(){const cur=curReason();$('quick').innerHTML=QUICK.map(q=>`<button class="qk" data-q="${q}" aria-pressed="${cur===q}">${q}</button>`).join('')}
+$('quick').addEventListener('click',e=>{const b=e.target.closest('.qk');if(!b) return;$('reason').value=curReason()===b.dataset.q?'':b.dataset.q;renderQuick()});
+$('reason').addEventListener('input',renderQuick);
+renderQuick();
 
 /* ---------- boot ---------- */
 renderLegend();buildGrid();renderPeople();load();
