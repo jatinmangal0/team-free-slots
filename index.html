@@ -48,7 +48,10 @@ button{cursor:pointer}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px}
 .gridbox{overflow:auto;max-height:min(72vh,680px);padding:0 10px 12px;overscroll-behavior:contain}
 .g thead th{position:sticky;top:0;z-index:2;background:var(--surface);padding-top:10px}
-table.g{table-layout:fixed;border-collapse:separate;border-spacing:2px;width:100%;min-width:560px;user-select:none;-webkit-user-select:none;touch-action:none}
+table.g{table-layout:fixed;border-collapse:separate;border-spacing:2px;width:100%;min-width:560px;user-select:none;-webkit-user-select:none}
+.mode-mine td.c{touch-action:none} /* drag-to-mark; swipe on the time column to scroll */
+.g td.t{touch-action:pan-x pan-y}
+.g.locked td.c{cursor:progress;opacity:.55}
 .g th{font-weight:500;font-size:12px;color:var(--muted);padding:4px 2px}
 .g th .d{display:block;font-family:var(--f-display);font-size:15px;color:var(--fg);font-variant-numeric:tabular-nums}
 .g th.today .d{color:var(--accent)}
@@ -165,7 +168,13 @@ let notesAll={}; // weekKey -> {memberIdx: {slotKey: reason}}
 const QUICK=['Class','Meeting','Club','Personal','Travel'];
 let unsubWeek=null;
 let picked=null;
-let dirty=false, saving=false;
+let dirty=false, saving=false; // derived from the queues below, kept for rendering
+// Edits are queued per (week, member) at the moment they happen, so a save always goes to the week that was edited.
+const pending=new Map();   // 'week|member' -> {week, member}
+const inFlight=new Set();  // keys being saved right now
+const loadedWeeks=new Set(); // weeks whose server data has arrived at least once
+const pk=(week,member)=>week+'|'+member;
+function syncFlags(){dirty=pending.size>0;saving=inFlight.size>0}
 
 function mondayOf(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());const wd=(x.getDay()+6)%7;x.setDate(x.getDate()-wd);return x}
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
@@ -196,6 +205,7 @@ function buildGrid(){
     h+='</tr>';
   }
   g.innerHTML=h+'</tbody>';
+  if(typeof loadedWeeks!=='undefined') g.classList.toggle('locked',!loadedWeeks.has(wk()));
   const end=addDays(weekStart,6);
   const fmt={day:'numeric',month:'short'};
   $('weekLabel').textContent=weekStart.toLocaleDateString('en-IN',fmt)+' – '+end.toLocaleDateString('en-IN',fmt);
@@ -283,17 +293,23 @@ $('grid').addEventListener('pointerdown',e=>{
   if(view==='team'){picked=picked===c.dataset.k?null:c.dataset.k;paint();return}
   if(me===null){setStatus('Pick your name first.');return}
   if(!canWrite){setStatus('You can view but not edit this calendar.');return}
+  if(!loadedWeeks.has(wk())){setStatus('Loading this week… you can mark times in a moment.');load();return}
   e.preventDefault();
-  const s=mine();drag={add:!s.has(c.dataset.k),reason:curReason(),seen:new Set()};
+  const week=wk(),who=me,s=weekBusy()[who]||(weekBusy()[who]=new Set());
+  drag={week,who,add:!s.has(c.dataset.k),reason:curReason(),seen:new Set()};
   apply(c);
 });
 window.addEventListener('pointermove',e=>{if(!drag) return;const c=cellAt(e.clientX,e.clientY);if(c) apply(c)});
-window.addEventListener('pointerup',()=>{if(drag){drag=null;scheduleSave()}});
+function endDrag(){if(drag){drag=null;scheduleSave()}}
+window.addEventListener('pointerup',endDrag);
+window.addEventListener('pointercancel',endDrag);
 function apply(c){
+  if(drag.week!==wk()) return; // never paint into a week other than the one the drag started in
   const k=c.dataset.k;if(drag.seen.has(k)) return;drag.seen.add(k);
-  const s=mine(),nt=notesOf(me);
+  const B=busyAll[drag.week]||(busyAll[drag.week]={}),N=notesAll[drag.week]||(notesAll[drag.week]={});
+  const s=B[drag.who]||(B[drag.who]=new Set()),nt=N[drag.who]||(N[drag.who]={});
   if(drag.add){s.add(k);if(drag.reason) nt[k]=drag.reason; else delete nt[k]}else{s.delete(k);delete nt[k]}
-  dirty=true;paint();
+  pending.set(pk(drag.week,drag.who),{week:drag.week,member:drag.who});syncFlags();paint();
 }
 
 /* ---------- storage ---------- */
@@ -319,45 +335,53 @@ function renderSave(){
 let saveTimer=null, online=false;
 function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(save,800);renderPeople();renderSide();renderSave()}
 async function save(){
-  if(!dirty||me===null) return;
-  if(saving){scheduleSave();return}
-  saving=true;dirty=false;renderSave();
-  const week=wk(), who=me, slots=[...mine()].filter(x=>/^[0-6]-\d{1,2}$/.test(x)).sort();
-  const nt=notesOf(who),notes={};slots.forEach(k=>{if(nt[k]) notes[k]=nt[k]});
-  try{
-    await postJSON('/busy',{week,member:who,slots,notes});
-    failCount=0;lastErr='';
-  }catch(err){
-    dirty=true;failCount++;
-    const wait=Math.min(30,2*failCount);
-    console.warn('Save failed:',err);
-    lastErr=(err.message||'network error')+'. Retrying in '+wait+' s, or press Save.';
+  if(drag){scheduleSave();return}
+  const jobs=[...pending.entries()].filter(([key])=>!inFlight.has(key));
+  if(!jobs.length) return;
+  let failed=null;
+  await Promise.all(jobs.map(async([key,{week,member}])=>{
+    pending.delete(key);inFlight.add(key);syncFlags();renderSave();
+    // Snapshot this week's slots for this person now; later edits re-queue the key.
+    const slots=[...((busyAll[week]||{})[member]||[])].filter(x=>/^[0-6]-\d{1,2}$/.test(x)).sort();
+    const nt=((notesAll[week]||{})[member])||{},notes={};slots.forEach(k=>{if(nt[k]) notes[k]=nt[k]});
+    try{await postJSON('/busy',{week,member,slots,notes})}
+    catch(err){failed=err;if(!pending.has(key)) pending.set(key,{week,member})}
+    finally{inFlight.delete(key);syncFlags()}
+  }));
+  if(failed){
+    failCount++;const wait=Math.min(30,2*failCount);
+    console.warn('Save failed:',failed);
+    lastErr=(failed.message||'network error')+'. Retrying in '+wait+' s, or press Save.';
     clearTimeout(saveTimer);saveTimer=setTimeout(save,wait*1000);
-  }
-  saving=false;renderSave();
+  }else{failCount=0;lastErr='';if(pending.size) scheduleSave()}
+  renderSave();
 }
-let loading=false;
+const loadingWeeks=new Set();
 async function load(){
-  if(loading||drag) return;
-  loading=true;
   const week=wk();
+  if(loadingWeeks.has(week)) return; // a refresh for THIS week is already running; other weeks don't block it
+  loadingWeeks.add(week);
   try{
     const r=await fetch(API+'/week?week='+week,{cache:'no-store'});
     if(!r.ok) throw new Error(r.status);
     const d=await r.json();
     if(Array.isArray(d.names)&&d.names.length===6&&$('namesPanel').hidden) names=d.names.map(String);
-    if(week===wk()&&!drag){
-      const w=busyAll[week]||(busyAll[week]={});
-      for(let i=0;i<6;i++){
-        if(i===me&&(dirty||saving)) continue; // keep my unsaved edits
-        w[i]=new Set((Array.isArray(d.busy[i])?d.busy[i]:[]).filter(x=>/^[0-6]-\d{1,2}$/.test(x)));
-        weekNotes()[i]=(d.notes&&d.notes[i]&&typeof d.notes[i]==='object')?{...d.notes[i]}:{};
-      }
-      paint();renderPeople();
+    // Store into the week that was requested, even if the viewer has moved on.
+    const w=busyAll[week]||(busyAll[week]={}),N=notesAll[week]||(notesAll[week]={});
+    for(let i=0;i<6;i++){
+      const key=pk(week,i);
+      if(pending.has(key)||inFlight.has(key)||(drag&&drag.week===week&&drag.who===i)) continue; // keep local edits
+      w[i]=new Set((Array.isArray(d.busy[i])?d.busy[i]:[]).filter(x=>/^[0-6]-\d{1,2}$/.test(x)));
+      N[i]=(d.notes&&d.notes[i]&&typeof d.notes[i]==='object')?{...d.notes[i]}:{};
+    }
+    loadedWeeks.add(week);
+    if(week===wk()){
+      if(!drag) paint();
+      renderPeople();$('grid').classList.toggle('locked',false);
     }
     online=true;setStatus('Live · shows everyone\'s changes every few seconds');
   }catch(e){online=false;setStatus('Offline. Showing the last loaded data.')}
-  loading=false;
+  loadingWeeks.delete(week);
 }
 function listenWeek(){load()}
 setInterval(()=>{if(!document.hidden) load()},5000);
@@ -383,6 +407,7 @@ $('people').addEventListener('click',e=>{
 
 /* ---------- nav ---------- */
 function goWeek(d){weekStart=d;picked=null;buildGrid();renderPeople();listenWeek()}
+function lockIfUnloaded(){$('grid').classList.toggle('locked',!loadedWeeks.has(wk()))}
 $('prev').onclick=()=>goWeek(addDays(weekStart,-7));
 $('next').onclick=()=>goWeek(addDays(weekStart,7));
 $('thisWeek').onclick=()=>goWeek(mondayOf(new Date()));
@@ -391,6 +416,7 @@ $('vMine').onclick=()=>setView('mine');
 $('vTeam').onclick=()=>setView('team');
 
 $('saveBtn').addEventListener('click',()=>{clearTimeout(saveTimer);failCount=0;save()});
+window.addEventListener('pagehide',()=>{if(pending.size) save()});
 
 /* ---------- reason picker ---------- */
 function renderQuick(){const cur=curReason();$('quick').innerHTML=QUICK.map(q=>`<button class="qk" data-q="${q}" aria-pressed="${cur===q}">${q}</button>`).join('')}
