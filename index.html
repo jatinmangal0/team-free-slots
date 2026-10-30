@@ -46,7 +46,8 @@ button{cursor:pointer}
 .main{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:16px;align-items:start}
 @media (max-width:880px){.main{grid-template-columns:minmax(0,1fr)}}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px}
-.gridbox{overflow-x:auto;padding:10px 10px 12px}
+.gridbox{overflow:auto;max-height:min(72vh,680px);padding:0 10px 12px;overscroll-behavior:contain}
+.g thead th{position:sticky;top:0;z-index:2;background:var(--surface);padding-top:10px}
 table.g{table-layout:fixed;border-collapse:separate;border-spacing:2px;width:100%;min-width:560px;user-select:none;-webkit-user-select:none;touch-action:none}
 .g th{font-weight:500;font-size:12px;color:var(--muted);padding:4px 2px}
 .g th .d{display:block;font-family:var(--f-display);font-size:15px;color:var(--fg);font-variant-numeric:tabular-nums}
@@ -138,7 +139,8 @@ aside h2{font-family:var(--f-display);font-size:17px;margin:0;font-weight:700}
 
 <script>
 const API='https://br-sparkling-glitter-a10k54kj-api.compute.c-1.ap-southeast-1.aws.neon.tech';
-const START_H=8, END_H=22, STEP=30; // 8:00–22:00 in 30-minute slots
+const START_H=0, END_H=24, STEP=30; // full day, 30-minute slots
+const SUGGEST_FROM=7, SUGGEST_TO=23; // free-window suggestions skip the small hours
 const ROWS=(END_H-START_H)*60/STEP;
 const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const DEFAULT_NAMES=['Member 1','Member 2','Member 3','Member 4','Member 5','Member 6'];
@@ -159,7 +161,7 @@ function mondayOf(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
 function wk(){return ymd(weekStart)}
-function timeLabel(r){const m=START_H*60+r*STEP;let h=Math.floor(m/60),mm=m%60;const ap=h>=12?'pm':'am';let h12=h%12||12;return h12+(mm?':'+String(mm).padStart(2,'0'):'')+ap}
+function timeLabel(r){const m=START_H*60+r*STEP;let h=Math.floor(m/60)%24,mm=m%60;const ap=h>=12?'pm':'am';let h12=h%12||12;return h12+(mm?':'+String(mm).padStart(2,'0'):'')+ap}
 function key(d,r){return d+'-'+r}
 function weekBusy(){return busyAll[wk()]||(busyAll[wk()]={})}
 function mine(){const w=weekBusy();return w[me]||(w[me]=new Set())}
@@ -188,6 +190,7 @@ function buildGrid(){
   const fmt={day:'numeric',month:'short'};
   $('weekLabel').textContent=weekStart.toLocaleDateString('en-IN',fmt)+' – '+end.toLocaleDateString('en-IN',fmt);
   paint();
+  if(!buildGrid.scrolled){const row=g.querySelectorAll('tbody tr')[(8-START_H)*60/STEP];if(row){const box=g.parentElement;box.scrollTop=row.offsetTop-box.querySelector('thead').offsetHeight;buildGrid.scrolled=true}}
 }
 function paint(){
   const cells=$('grid').querySelectorAll('td.c');
@@ -221,8 +224,9 @@ function freeRanges(minSlots){
   const w=weekBusy(),out=[];
   for(let d=0;d<7;d++){
     let s=null;
-    for(let r=0;r<=ROWS;r++){
-      let free=r<ROWS;
+    const r0=(SUGGEST_FROM-START_H)*60/STEP, r1=(SUGGEST_TO-START_H)*60/STEP;
+    for(let r=r0;r<=r1;r++){
+      let free=r<r1;
       if(free) for(let i=0;i<6;i++) if(w[i]&&w[i].has(key(d,r))){free=false;break}
       if(free&&s===null) s=r;
       if(!free&&s!==null){if(r-s>=minSlots) out.push({d,s,e:r});s=null}
@@ -241,7 +245,7 @@ function renderSide(){
     $('sideTitle').textContent='Everyone free';
     const marked=[0,1,2,3,4,5].filter(i=>(weekBusy()[i]||new Set()).size>0).length;
     const r=freeRanges(2).sort((a,b)=>(b.e-b.s)-(a.e-a.s)||a.d-b.d||a.s-b.s).slice(0,8).sort((a,b)=>a.d-b.d||a.s-b.s);
-    let h=`<p class="hint">${marked} of 6 have marked their week. Windows of an hour or more where nobody is busy:</p>`;
+    let h=`<p class="hint">${marked} of 6 have marked their week. Windows of an hour or more where nobody is busy (7am–11pm):</p>`;
     h+=r.length?'<ul class="slots">'+r.map(x=>`<li><b>${DAYS[x.d]} ${addDays(weekStart,x.d).getDate()}</b><span>${timeLabel(x.s)}–${timeLabel(x.e)}</span></li>`).join('')+'</ul>':'<p class="empty">No hour-long window where all six are free this week.</p>';
     if(picked){
       const [d,rr]=picked.split('-').map(Number);const w=weekBusy();
