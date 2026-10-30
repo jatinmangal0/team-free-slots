@@ -80,6 +80,12 @@ aside h2{font-family:var(--f-display);font-size:17px;margin:0;font-weight:700}
 .tag{font-size:12px;border-radius:999px;padding:2px 8px;background:var(--busy-soft);color:var(--fg)}
 .tag.ok{background:var(--free-soft)}
 .status{font-size:12px;color:var(--muted);min-height:1.2em}
+.savebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px}
+.savebtn{border:0;border-radius:8px;padding:9px 18px;font-weight:600;background:var(--accent);color:var(--surface);cursor:pointer}
+.savebtn:disabled{background:var(--line);color:var(--muted);cursor:default}
+.savestate{font-size:13px;font-weight:500}
+.savestate.ok{color:var(--free)}
+.savestate.warn{color:var(--busy)}
 .names{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;padding:12px}
 .names input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 10px;width:100%;min-width:0}
 .hint{font-size:13px;color:var(--muted);margin:0}
@@ -132,6 +138,10 @@ aside h2{font-family:var(--f-display);font-size:17px;margin:0;font-weight:700}
     <aside class="panel">
       <h2 id="sideTitle">How to use</h2>
       <div id="sideBody"></div>
+      <div class="savebar" id="saveBar" hidden>
+        <button class="savebtn" id="saveBtn" type="button">Save</button>
+        <span class="savestate" id="saveState"></span>
+      </div>
       <div class="status" id="status">Connecting…</div>
     </aside>
   </div>
@@ -240,7 +250,7 @@ function renderSide(){
     $('sideTitle').textContent=me===null?'Pick your name':'Your busy time';
     if(me===null){body.innerHTML='<p class="hint">Tap your name above, then tap or drag across the grid to mark the times you already have a class, meeting or anything else.</p>';return}
     const n=(weekBusy()[me]||new Set()).size;
-    body.innerHTML=`<p class="hint">Type or pick what you're busy with, then tap or drag over cells to mark when <b>${esc(names[me])}</b> is busy. The label is saved with those cells. Drag again over orange cells to clear them. Changes save on their own.</p><p class="hint" style="font-family:var(--f-mono)">${(n*STEP/60).toFixed(1)} h marked busy this week</p>`;
+    body.innerHTML=`<p class="hint">Type or pick what you're busy with, then tap or drag over cells to mark when <b>${esc(names[me])}</b> is busy. The label is saved with those cells. Drag again over orange cells to clear them. Changes save automatically; press <b>Save</b> any time to make sure.</p><p class="hint" style="font-family:var(--f-mono)">${(n*STEP/60).toFixed(1)} h marked busy this week</p>`;
   }else{
     $('sideTitle').textContent='Everyone free';
     const marked=[0,1,2,3,4,5].filter(i=>(weekBusy()[i]||new Set()).size>0).length;
@@ -297,26 +307,34 @@ async function postJSON(path,data){
   }catch(e){if(e.name==='AbortError') throw new Error('no reply after 15 s');throw e}
   finally{clearTimeout(t)}
 }
-let failCount=0;
+let failCount=0, lastErr='';
+function renderSave(){
+  const bar=$('saveBar'),btn=$('saveBtn'),st=$('saveState');
+  bar.hidden=(view!=='mine'||me===null);
+  if(bar.hidden) return;
+  if(saving){btn.disabled=true;btn.textContent='Saving…';st.className='savestate';st.textContent='';}
+  else if(dirty){btn.disabled=false;btn.textContent='Save';st.className='savestate warn';st.textContent=lastErr?('Not saved: '+lastErr):'Unsaved changes';}
+  else{btn.disabled=true;btn.textContent='Saved';st.className='savestate ok';st.textContent='✓ All changes saved';}
+}
 let saveTimer=null, online=false;
-function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(save,500);renderPeople();renderSide()}
+function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(save,800);renderPeople();renderSide();renderSave()}
 async function save(){
   if(!dirty||me===null) return;
   if(saving){scheduleSave();return}
-  saving=true;dirty=false;setStatus('Saving…');
-  const week=wk(), who=me, slots=[...mine()].sort();
+  saving=true;dirty=false;renderSave();
+  const week=wk(), who=me, slots=[...mine()].filter(x=>/^[0-6]-\d{1,2}$/.test(x)).sort();
   const nt=notesOf(who),notes={};slots.forEach(k=>{if(nt[k]) notes[k]=nt[k]});
   try{
     await postJSON('/busy',{week,member:who,slots,notes});
-    failCount=0;setStatus(dirty?'Saving…':'Saved ✓');
+    failCount=0;lastErr='';
   }catch(err){
     dirty=true;failCount++;
     const wait=Math.min(30,2*failCount);
     console.warn('Save failed:',err);
-    setStatus(`Not saved yet (${err.message||'network error'}). Retrying in ${wait} s…`);
+    lastErr=(err.message||'network error')+'. Retrying in '+wait+' s, or press Save.';
     clearTimeout(saveTimer);saveTimer=setTimeout(save,wait*1000);
   }
-  saving=false;
+  saving=false;renderSave();
 }
 let loading=false;
 async function load(){
@@ -332,12 +350,12 @@ async function load(){
       const w=busyAll[week]||(busyAll[week]={});
       for(let i=0;i<6;i++){
         if(i===me&&(dirty||saving)) continue; // keep my unsaved edits
-        w[i]=new Set(Array.isArray(d.busy[i])?d.busy[i]:[]);
+        w[i]=new Set((Array.isArray(d.busy[i])?d.busy[i]:[]).filter(x=>/^[0-6]-\d{1,2}$/.test(x)));
         weekNotes()[i]=(d.notes&&d.notes[i]&&typeof d.notes[i]==='object')?{...d.notes[i]}:{};
       }
       paint();renderPeople();
     }
-    online=true;if(!saving&&!dirty) setStatus('Live · refreshes every few seconds');
+    online=true;setStatus('Live · shows everyone\'s changes every few seconds');
   }catch(e){online=false;setStatus('Offline. Showing the last loaded data.')}
   loading=false;
 }
@@ -360,6 +378,7 @@ $('people').addEventListener('click',e=>{
   const b=e.target.closest('.chip');if(!b) return;
   me=+b.dataset.i;try{localStorage.setItem('tfs-me',me)}catch(e){}
   if(view!=='mine') setView('mine');else{renderPeople();paint()}
+  renderSave();
 });
 
 /* ---------- nav ---------- */
@@ -367,9 +386,11 @@ function goWeek(d){weekStart=d;picked=null;buildGrid();renderPeople();listenWeek
 $('prev').onclick=()=>goWeek(addDays(weekStart,-7));
 $('next').onclick=()=>goWeek(addDays(weekStart,7));
 $('thisWeek').onclick=()=>goWeek(mondayOf(new Date()));
-function setView(v){view=v;$('reasonRow').hidden=v!=='mine';$('vMine').setAttribute('aria-pressed',v==='mine');$('vTeam').setAttribute('aria-pressed',v==='team');renderLegend();buildGrid();renderPeople()}
+function setView(v){view=v;setTimeout(renderSave);$('reasonRow').hidden=v!=='mine';$('vMine').setAttribute('aria-pressed',v==='mine');$('vTeam').setAttribute('aria-pressed',v==='team');renderLegend();buildGrid();renderPeople()}
 $('vMine').onclick=()=>setView('mine');
 $('vTeam').onclick=()=>setView('team');
+
+$('saveBtn').addEventListener('click',()=>{clearTimeout(saveTimer);failCount=0;save()});
 
 /* ---------- reason picker ---------- */
 function renderQuick(){const cur=curReason();$('quick').innerHTML=QUICK.map(q=>`<button class="qk" data-q="${q}" aria-pressed="${cur===q}">${q}</button>`).join('')}
