@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Team Free Slots</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a toolbar (week + mode + who) over one big time grid; best-slot list beside it on wide screens, below on phones */
+:root{
+  --bg:#f3f5f4; --surface:#ffffff; --fg:#17201d; --muted:#5d6b66; --line:#dbe2df;
+  --free:#1f7a5a; --free-soft:#d5efe3; --busy:#c9731f; --busy-soft:#f6e3cd; --accent:#245c8f; --accent-soft:#dde8f3;
+  --f-display:"Familjen Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111715; --surface:#18201d; --fg:#e6ece9; --muted:#97a6a0; --line:#2b3632;
+  --free:#4cc394; --free-soft:#173a2c; --busy:#e8984d; --busy-soft:#43301b; --accent:#7fb2e3; --accent-soft:#1c2c3b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111715; --surface:#18201d; --fg:#e6ece9; --muted:#97a6a0; --line:#2b3632;
+  --free:#4cc394; --free-soft:#173a2c; --busy:#e8984d; --busy-soft:#43301b; --accent:#7fb2e3; --accent-soft:#1c2c3b; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--f-display);font-weight:700;font-size:28px;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 0;max-width:65ch}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.group{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 12px}
+.btn:hover{border-color:var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:3px;gap:2px}
+.seg button{border:0;background:transparent;padding:6px 12px;border-radius:6px;color:var(--muted);font-weight:500}
+.seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.week{font-family:var(--f-display);font-weight:500;font-size:16px;min-width:170px;text-align:center;font-variant-numeric:tabular-nums}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.people{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;display:inline-flex;gap:6px;align-items:center}
+.chip[aria-pressed="true"]{border-color:var(--busy);background:var(--busy-soft);font-weight:600}
+.chip .n{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:16px;align-items:start}
+@media (max-width:880px){.main{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.gridbox{overflow-x:auto;padding:10px 10px 12px}
+table.g{border-collapse:separate;border-spacing:2px;width:100%;min-width:560px;user-select:none;-webkit-user-select:none;touch-action:none}
+.g th{font-weight:500;font-size:12px;color:var(--muted);padding:4px 2px}
+.g th .d{display:block;font-family:var(--f-display);font-size:15px;color:var(--fg);font-variant-numeric:tabular-nums}
+.g th.today .d{color:var(--accent)}
+.g td.t{font-family:var(--f-mono);font-size:11px;color:var(--muted);text-align:right;padding-right:6px;white-space:nowrap;vertical-align:top;line-height:1;width:44px}
+.g td.c{height:20px;border-radius:4px;background:var(--bg);cursor:pointer;position:relative;font-family:var(--f-mono);font-size:10px;text-align:center;color:var(--muted);padding:0}
+.g tr.hr td.c{box-shadow:inset 0 1px 0 var(--line)}
+.mode-mine td.c.on{background:var(--busy);box-shadow:none}
+.mode-team td.c{cursor:default}
+.mode-team td.c.all{background:var(--free);color:transparent}
+.mode-team td.c.pick{outline:2px solid var(--accent);outline-offset:-1px}
+.mode-team td.c.lv0{background:var(--free)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);padding:0 12px 12px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px}
+aside{padding:14px;display:flex;flex-direction:column;gap:12px}
+aside h2{font-family:var(--f-display);font-size:17px;margin:0;font-weight:700}
+.slots{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.slots li{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:8px;background:var(--free-soft);font-variant-numeric:tabular-nums}
+.slots li b{font-weight:600}
+.slots li span{font-family:var(--f-mono);font-size:12px;color:var(--free);white-space:nowrap}
+.empty{color:var(--muted);font-size:13px}
+.detail{font-size:13px;border-top:1px solid var(--line);padding-top:12px}
+.detail .who{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.tag{font-size:12px;border-radius:999px;padding:2px 8px;background:var(--busy-soft);color:var(--fg)}
+.tag.ok{background:var(--free-soft)}
+.status{font-size:12px;color:var(--muted);min-height:1.2em}
+.names{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;padding:12px}
+.names input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 10px;width:100%;min-width:0}
+.hint{font-size:13px;color:var(--muted);margin:0}
+@media (prefers-reduced-motion:no-preference){td.c{transition:background-color .12s}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Team Free Slots</h1>
+    <p class="sub">Each person marks when they already have something on. The team view turns green wherever all six are free.</p>
+  </header>
+
+  <div class="bar">
+    <div class="group">
+      <button class="btn" id="prev" aria-label="Previous week">←</button>
+      <div class="week" id="weekLabel">This week</div>
+      <button class="btn" id="next" aria-label="Next week">→</button>
+      <button class="btn" id="thisWeek">Today</button>
+    </div>
+    <div class="seg" role="group" aria-label="View">
+      <button id="vMine" aria-pressed="true">Mark my busy time</button>
+      <button id="vTeam" aria-pressed="false">Team overlap</button>
+    </div>
+  </div>
+
+  <div class="group" id="whoRow">
+    <span class="label">I am</span>
+    <div class="people" id="people"></div>
+    <button class="btn" id="editNames" style="padding:4px 10px;font-size:12px">Edit names</button>
+  </div>
+  <div class="panel" id="namesPanel" hidden>
+    <div class="names" id="namesForm"></div>
+    <div class="group" style="padding:0 12px 12px">
+      <button class="btn" id="saveNames">Save names</button>
+      <span class="status" id="namesStatus"></span>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="panel">
+      <div class="gridbox"><table class="g mode-mine" id="grid"></table></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <aside class="panel">
+      <h2 id="sideTitle">How to use</h2>
+      <div id="sideBody"></div>
+      <div class="status" id="status">Connecting…</div>
+    </aside>
+  </div>
+</div>
+
+<script>
+const API='https://br-sparkling-glitter-a10k54kj-api.compute.c-1.ap-southeast-1.aws.neon.tech';
+const START_H=8, END_H=22, STEP=30; // 8:00–22:00 in 30-minute slots
+const ROWS=(END_H-START_H)*60/STEP;
+const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const DEFAULT_NAMES=['Member 1','Member 2','Member 3','Member 4','Member 5','Member 6'];
+
+let canWrite=true;
+let names=DEFAULT_NAMES.slice();
+let me=null; try{const v=localStorage.getItem('tfs-me'); if(v!==null) me=+v;}catch(e){}
+let view='mine';
+let weekStart=mondayOf(new Date());
+let busyAll={}; // weekKey -> {memberIdx: Set(slotKeys)}
+let unsubWeek=null;
+let picked=null;
+let dirty=false, saving=false;
+
+function mondayOf(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());const wd=(x.getDay()+6)%7;x.setDate(x.getDate()-wd);return x}
+function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
+function wk(){return ymd(weekStart)}
+function timeLabel(r){const m=START_H*60+r*STEP;let h=Math.floor(m/60),mm=m%60;const ap=h>=12?'pm':'am';let h12=h%12||12;return h12+(mm?':'+String(mm).padStart(2,'0'):'')+ap}
+function key(d,r){return d+'-'+r}
+function weekBusy(){return busyAll[wk()]||(busyAll[wk()]={})}
+function mine(){const w=weekBusy();return w[me]||(w[me]=new Set())}
+const $=id=>document.getElementById(id);
+
+function setStatus(t){$('status').textContent=t}
+
+/* ---------- grid ---------- */
+function buildGrid(){
+  const g=$('grid'); g.className='g mode-'+view;
+  const today=ymd(new Date());
+  let h='<thead><tr><th></th>';
+  for(let d=0;d<7;d++){const dt=addDays(weekStart,d);h+=`<th class="${ymd(dt)===today?'today':''}">${DAYS[d]}<span class="d">${dt.getDate()}</span></th>`}
+  h+='</tr></thead><tbody>';
+  for(let r=0;r<ROWS;r++){
+    const onHour=(START_H*60+r*STEP)%60===0;
+    h+=`<tr class="${onHour?'hr':''}"><td class="t">${onHour?timeLabel(r):''}</td>`;
+    for(let d=0;d<7;d++) h+=`<td class="c" data-k="${key(d,r)}"></td>`;
+    h+='</tr>';
+  }
+  g.innerHTML=h+'</tbody>';
+  const end=addDays(weekStart,6);
+  const fmt={day:'numeric',month:'short'};
+  $('weekLabel').textContent=weekStart.toLocaleDateString('en-IN',fmt)+' – '+end.toLocaleDateString('en-IN',fmt);
+  paint();
+}
+function paint(){
+  const cells=$('grid').querySelectorAll('td.c');
+  const w=weekBusy();
+  if(view==='mine'){
+    const s=me!==null?(w[me]||new Set()):new Set();
+    cells.forEach(c=>{c.classList.toggle('on',s.has(c.dataset.k));c.className=c.className.replace(/\blv\d\b|\ball\b|\bpick\b/g,'').trim();c.textContent='';c.style.background='';c.style.color=''});
+  }else{
+    cells.forEach(c=>{
+      const k=c.dataset.k;let n=0;for(let i=0;i<6;i++) if(w[i]&&w[i].has(k)) n++;
+      c.classList.remove('on');c.classList.toggle('all',n===0);c.classList.toggle('pick',picked===k);
+      c.textContent=n?n:'';
+      c.style.background=n?`color-mix(in srgb, var(--busy) ${Math.round(18+n*13)}%, var(--bg))`:'';
+      c.style.color=n>=4?'var(--surface)':'';
+    });
+  }
+  renderSide();
+}
+
+/* ---------- side panel ---------- */
+function freeRanges(minSlots){
+  const w=weekBusy(),out=[];
+  for(let d=0;d<7;d++){
+    let s=null;
+    for(let r=0;r<=ROWS;r++){
+      let free=r<ROWS;
+      if(free) for(let i=0;i<6;i++) if(w[i]&&w[i].has(key(d,r))){free=false;break}
+      if(free&&s===null) s=r;
+      if(!free&&s!==null){if(r-s>=minSlots) out.push({d,s,e:r});s=null}
+    }
+  }
+  return out;
+}
+function renderSide(){
+  const body=$('sideBody');
+  if(view==='mine'){
+    $('sideTitle').textContent=me===null?'Pick your name':'Your busy time';
+    if(me===null){body.innerHTML='<p class="hint">Tap your name above, then tap or drag across the grid to mark the times you already have a class, meeting or anything else.</p>';return}
+    const n=(weekBusy()[me]||new Set()).size;
+    body.innerHTML=`<p class="hint">Tap or drag over cells to mark when <b>${esc(names[me])}</b> is busy. Drag again over orange cells to clear them. Changes save on their own.</p><p class="hint" style="font-family:var(--f-mono)">${(n*STEP/60).toFixed(1)} h marked busy this week</p>`;
+  }else{
+    $('sideTitle').textContent='Everyone free';
+    const marked=[0,1,2,3,4,5].filter(i=>(weekBusy()[i]||new Set()).size>0).length;
+    const r=freeRanges(2).sort((a,b)=>(b.e-b.s)-(a.e-a.s)||a.d-b.d||a.s-b.s).slice(0,8).sort((a,b)=>a.d-b.d||a.s-b.s);
+    let h=`<p class="hint">${marked} of 6 have marked their week. Windows of an hour or more where nobody is busy:</p>`;
+    h+=r.length?'<ul class="slots">'+r.map(x=>`<li><b>${DAYS[x.d]} ${addDays(weekStart,x.d).getDate()}</b><span>${timeLabel(x.s)}–${timeLabel(x.e)}</span></li>`).join('')+'</ul>':'<p class="empty">No hour-long window where all six are free this week.</p>';
+    if(picked){
+      const [d,rr]=picked.split('-').map(Number);const w=weekBusy();
+      const busy=[],free=[];for(let i=0;i<6;i++)(w[i]&&w[i].has(picked)?busy:free).push(names[i]);
+      h+=`<div class="detail"><b>${DAYS[d]} ${addDays(weekStart,d).getDate()}, ${timeLabel(rr)}–${timeLabel(rr+1)}</b><div class="who">${free.map(n=>`<span class="tag ok">${esc(n)}</span>`).join('')}${busy.map(n=>`<span class="tag">${esc(n)} · busy</span>`).join('')}</div></div>`;
+    }else h+='<p class="hint">Tap any cell to see who is busy then.</p>';
+    body.innerHTML=h;
+  }
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function renderLegend(){
+  $('legend').innerHTML=view==='mine'
+    ?'<span><i class="sw" style="background:var(--busy)"></i>Busy</span><span><i class="sw" style="background:var(--bg);border:1px solid var(--line)"></i>Free</span>'
+    :'<span><i class="sw" style="background:var(--free)"></i>All 6 free</span><span><i class="sw" style="background:color-mix(in srgb,var(--busy) 31%,var(--bg))"></i>1 busy</span><span><i class="sw" style="background:color-mix(in srgb,var(--busy) 96%,var(--bg))"></i>6 busy</span><span>Number = how many are busy</span>';
+}
+function renderPeople(){
+  $('people').innerHTML=names.map((n,i)=>{const c=(weekBusy()[i]||new Set()).size;return `<button class="chip" data-i="${i}" aria-pressed="${me===i}">${esc(n)}<span class="n">${c?(c*STEP/60)+'h':'–'}</span></button>`}).join('');
+}
+
+/* ---------- painting interaction ---------- */
+let drag=null;
+function cellAt(x,y){const el=document.elementFromPoint(x,y);return el&&el.closest?el.closest('td.c'):null}
+$('grid').addEventListener('pointerdown',e=>{
+  const c=e.target.closest('td.c');if(!c) return;
+  if(view==='team'){picked=picked===c.dataset.k?null:c.dataset.k;paint();return}
+  if(me===null){setStatus('Pick your name first.');return}
+  if(!canWrite){setStatus('You can view but not edit this calendar.');return}
+  e.preventDefault();
+  const s=mine();drag={add:!s.has(c.dataset.k),seen:new Set()};
+  apply(c);
+});
+window.addEventListener('pointermove',e=>{if(!drag) return;const c=cellAt(e.clientX,e.clientY);if(c) apply(c)});
+window.addEventListener('pointerup',()=>{if(drag){drag=null;scheduleSave()}});
+function apply(c){
+  const k=c.dataset.k;if(drag.seen.has(k)) return;drag.seen.add(k);
+  const s=mine();drag.add?s.add(k):s.delete(k);c.classList.toggle('on',drag.add);dirty=true;
+}
+
+/* ---------- storage ---------- */
+let saveTimer=null, online=false;
+function scheduleSave(){clearTimeout(saveTimer);saveTimer=setTimeout(save,500);renderPeople();renderSide()}
+async function save(){
+  if(!dirty||me===null) return;
+  if(saving){scheduleSave();return}
+  saving=true;dirty=false;setStatus('Saving…');
+  const week=wk(), who=me, slots=[...mine()].sort();
+  try{
+    const r=await fetch(API+'/busy',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({week,member:who,slots})});
+    if(!r.ok) throw new Error(r.status);
+    setStatus('Saved');
+  }catch(err){dirty=true;setStatus('Could not save. Check your connection; it will retry.');setTimeout(scheduleSave,4000)}
+  saving=false;
+}
+let loading=false;
+async function load(){
+  if(loading||drag) return;
+  loading=true;
+  const week=wk();
+  try{
+    const r=await fetch(API+'/week?week='+week,{cache:'no-store'});
+    if(!r.ok) throw new Error(r.status);
+    const d=await r.json();
+    if(Array.isArray(d.names)&&d.names.length===6&&$('namesPanel').hidden) names=d.names.map(String);
+    if(week===wk()&&!drag){
+      const w=busyAll[week]||(busyAll[week]={});
+      for(let i=0;i<6;i++){
+        if(i===me&&(dirty||saving)) continue; // keep my unsaved edits
+        w[i]=new Set(Array.isArray(d.busy[i])?d.busy[i]:[]);
+      }
+      paint();renderPeople();
+    }
+    online=true;if(!saving&&!dirty) setStatus('Live · refreshes every few seconds');
+  }catch(e){online=false;setStatus('Offline. Showing the last loaded data.')}
+  loading=false;
+}
+function listenWeek(){load()}
+setInterval(()=>{if(!document.hidden) load()},5000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden) load()});
+
+/* ---------- names ---------- */
+$('editNames').onclick=()=>{
+  const p=$('namesPanel');p.hidden=!p.hidden;
+  if(!p.hidden) $('namesForm').innerHTML=names.map((n,i)=>`<input id="nm${i}" maxlength="24" value="${esc(n)}" aria-label="Name ${i+1}">`).join('');
+};
+$('saveNames').onclick=async()=>{
+  const nn=names.map((n,i)=>($('nm'+i).value.trim()||DEFAULT_NAMES[i]));
+  names=nn;renderPeople();renderSide();
+  try{const r=await fetch(API+'/names',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({names:nn})});if(!r.ok) throw 0;$('namesStatus').textContent='Saved';$('namesPanel').hidden=true}
+  catch(e){$('namesStatus').textContent='Could not save names.'}
+};
+$('people').addEventListener('click',e=>{
+  const b=e.target.closest('.chip');if(!b) return;
+  me=+b.dataset.i;try{localStorage.setItem('tfs-me',me)}catch(e){}
+  if(view!=='mine') setView('mine');else{renderPeople();paint()}
+});
+
+/* ---------- nav ---------- */
+function goWeek(d){weekStart=d;picked=null;buildGrid();renderPeople();listenWeek()}
+$('prev').onclick=()=>goWeek(addDays(weekStart,-7));
+$('next').onclick=()=>goWeek(addDays(weekStart,7));
+$('thisWeek').onclick=()=>goWeek(mondayOf(new Date()));
+function setView(v){view=v;$('vMine').setAttribute('aria-pressed',v==='mine');$('vTeam').setAttribute('aria-pressed',v==='team');renderLegend();buildGrid();renderPeople()}
+$('vMine').onclick=()=>setView('mine');
+$('vTeam').onclick=()=>setView('team');
+
+/* ---------- boot ---------- */
+renderLegend();buildGrid();renderPeople();load();
+</script>
+</body>
+</html>
